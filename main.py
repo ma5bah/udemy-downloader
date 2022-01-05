@@ -1628,16 +1628,16 @@ def parse_new(_udemy):
                         process_lecture(lecture, lecture_path,
                                         lecture_file_name, chapter_dir)
 
-                        # download subtitles for this lecture
-                        subtitles = lecture.get("subtitles")
-                        if dl_captions and subtitles and lecture_extension:
-                            logger.info(
-                                "Processing {} caption(s)...".format(len(subtitles)))
-                            for subtitle in subtitles:
-                                lang = subtitle.get("language")
-                                if lang == caption_locale or caption_locale == "all":
-                                    process_caption(
-                                        subtitle, lecture_title, chapter_dir)
+            # download subtitles for this lecture
+            subtitles = lecture.get("subtitles")
+            if dl_captions and subtitles != None and lecture_extension == None:
+                logger.info(
+                    "Processing {} caption(s)...".format(len(subtitles)))
+                for subtitle in subtitles:
+                    lang = subtitle.get("language")
+                    if lang == caption_locale or caption_locale == "all":
+                        process_caption(
+                            subtitle, lecture_title, chapter_dir)
 
             if dl_assets:
                 assets = lecture.get("assets")
@@ -1774,7 +1774,7 @@ def _print_course_info(course_data):
             logger.info("    > Qualities: {}".format(lecture_qualities))
 
         if chapter_index != chapter_count:
-            logger.info("\n\n")
+            logger.info("==========================================")
 
 
 def main():
