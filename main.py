@@ -10,19 +10,25 @@ import cloudscraper
 import m3u8
 import requests
 import yt_dlp
+import toml
 import logging
 from constants import *
 from coloredlogs import ColoredFormatter
 from pathlib import Path
 from html.parser import HTMLParser as compat_HTMLParser
-from dotenv import load_dotenv
 from requests.exceptions import ConnectionError as conn_error
 from tqdm import tqdm
 from utils import extract_kid
 from vtt_to_srt import convert
 from _version import __version__
-from bs4 import BeautifulSoup
 from pathvalidate import sanitize_filename
+import undetected_chromedriver as uc
+from selenium.common.exceptions import ElementNotVisibleException
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 
 retry = 3
 cookies = ""
@@ -31,36 +37,69 @@ logger: logging.Logger = None
 dl_assets = False
 skip_lectures = False
 dl_captions = False
-caption_locale = "en"
+caption_locale: str = "en"
 quality = None
-bearer_token = None
-portal_name = None
-course_name = None
+bearer_token: str = None
+portal_name: str = None
+course_name: str = None
 keep_vtt = False
 skip_hls = False
 concurrent_downloads = 10
 disable_ipv6 = False
 save_to_file = None
 load_from_file = None
-course_url = None
+course_url: str = None
 info = None
 keys = {}
 id_as_course_name = False
+is_subscription_course = False
+log_level: str = "INFO"
+stream: logging.StreamHandler = None
+username: str = None
+password: str = None
+headless = True
 
 
-# this is the first function that is called, we parse the arguments, setup the logger, and ensure that required directories exist
-def pre_run():
-    global dl_assets, skip_lectures, dl_captions, caption_locale, quality, bearer_token, portal_name, course_name, keep_vtt, skip_hls, concurrent_downloads, disable_ipv6, load_from_file, save_to_file, bearer_token, course_url, info, logger, keys, id_as_course_name
+def parse_config():
+    global dl_assets, skip_lectures, dl_captions, caption_locale, quality, bearer_token, keep_vtt, skip_hls, concurrent_downloads, disable_ipv6, load_from_file, save_to_file, id_as_course_name, log_level, username, password, headless
 
-    # make sure the directory exists
-    if not os.path.exists(DOWNLOAD_DIR):
-        os.makedirs(DOWNLOAD_DIR)
+    filename = "config.toml"
+    if not os.path.isfile(filename):
+        logger.warning("[-] Config file not found")
+        return
 
-    # make sure the logs directory exists
-    if not os.path.exists(LOG_DIR_PATH):
-        os.makedirs(LOG_DIR_PATH, exist_ok=True)
+    if os.path.isfile("config.dev.toml"):
+        logger.info("[-] Using development config file")
+        filename = "config.dev.toml"
 
-    # setup a logger
+    parsed_toml = toml.load(filename)
+    general_config = parsed_toml.get("general", {})
+    selenium_config = parsed_toml.get("selenium", {})
+
+    dl_assets = general_config.get("download_assets", False)
+    skip_lectures = general_config.get("skip_lectures", False)
+    dl_captions = general_config.get("download_captions", False)
+    caption_locale = general_config.get("caption_locale", "en")
+    quality = general_config.get("quality", None)
+    bearer_token = general_config.get("bearer_token", None)
+    keep_vtt = general_config.get("keep_vtt", False)
+    skip_hls = general_config.get("skip_hls", False)
+    # TODO: add support for skipping dash streams
+    skip_dash = general_config.get("skip_dash", False)
+    concurrent_downloads = general_config.get("concurrent_downloads", 10)
+    disable_ipv6 = general_config.get("disable_ipv6", False)
+    load_from_file = general_config.get("load_from_file", None)
+    save_to_file = general_config.get("save_to_file", None)
+    id_as_course_name = general_config.get("id_as_course_name", False)
+    log_level = general_config.get("log_level", "INFO")
+
+    username = selenium_config.get("username", None)
+    password = selenium_config.get("password", None)
+    headless = selenium_config.get("headless", True)
+
+
+def create_logger():
+    global logger, stream
     logger = logging.getLogger(__name__)
     logging.root.setLevel(LOG_LEVEL)
 
@@ -84,6 +123,26 @@ def pre_run():
     logger.addHandler(stream)
     logger.addHandler(file_handler)
 
+# this is the first function that is called, we parse the arguments, setup the logger, and ensure that required directories exist
+
+
+def pre_run():
+    global dl_assets, skip_lectures, dl_captions, caption_locale, quality, portal_name, course_name, keep_vtt, skip_hls, concurrent_downloads, disable_ipv6, load_from_file, save_to_file, bearer_token, course_url, info, logger, keys, id_as_course_name, is_subscription_course, log_level, username, password
+
+    # make sure the logs directory exists
+    if not os.path.exists(LOG_DIR_PATH):
+        os.makedirs(LOG_DIR_PATH, exist_ok=True)
+
+    # setup a logger
+    create_logger()
+
+    # load config.toml and set initial settings
+    parse_config()
+
+    # make sure the directory exists
+    if not os.path.exists(DOWNLOAD_DIR):
+        os.makedirs(DOWNLOAD_DIR)
+
     parser = argparse.ArgumentParser(description='Udemy Downloader')
     parser.add_argument("-c",
                         "--course-url",
@@ -97,6 +156,20 @@ def pre_run():
         dest="bearer_token",
         type=str,
         help="The Bearer token to use",
+    )
+    parser.add_argument(
+        "-u",
+        "--username",
+        dest="username",
+        type=str,
+        help="username",
+    )
+    parser.add_argument(
+        "-p",
+        "--password",
+        dest="password",
+        type=str,
+        help="password",
     )
     parser.add_argument(
         "-q",
@@ -167,6 +240,12 @@ def pre_run():
         action="store_true",
         help="If specified, the course id will be used in place of the course name for the output directory. This is a 'hack' to reduce the path length",
     )
+    parser.add_argument(
+        "-sc", "--subscription-course",
+        dest="is_subscription_course",
+        action="store_true",
+        help="If this course is part of a subscription plan (Personal or Pro Plans)",
+    )
 
     parser.add_argument(
         "--save-to-file",
@@ -189,6 +268,7 @@ def pre_run():
     parser.add_argument("-v", "--version", action="version",
                         version='You are running version {version}'.format(version=__version__))
 
+    # parse command line arguments, these override the config file settings
     args = parser.parse_args()
     if args.download_assets:
         dl_assets = True
@@ -226,21 +306,36 @@ def pre_run():
     if args.info:
         info = args.info
     if args.log_level:
-        if args.log_level.upper() == "DEBUG":
-            logger.setLevel(logging.DEBUG)
-        elif args.log_level.upper() == "INFO":
-            logger.setLevel(logging.INFO)
-        elif args.log_level.upper() == "ERROR":
-            logger.setLevel(logging.ERROR)
-        elif args.log_level.upper() == "WARNING":
-            logger.setLevel(logging.WARNING)
-        elif args.log_level.upper() == "CRITICAL":
-            logger.setLevel(logging.CRITICAL)
-        else:
-            logger.warning("Invalid log level: %s; Using INFO", args.log_level)
-            logger.setLevel(logging.INFO)
+        log_level = args.log_level
     if args.id_as_course_name:
         id_as_course_name = args.id_as_course_name
+    if args.is_subscription_course:
+        is_subscription_course = args.is_subscription_course
+    if args.username:
+        username = args.username
+    if args.password:
+        password = args.password
+
+    # parse loglevel string to int
+    if log_level.upper() == "DEBUG":
+        logger.setLevel(logging.DEBUG)
+        stream.setLevel(logging.DEBUG)
+    elif log_level.upper() == "INFO":
+        logger.setLevel(logging.INFO)
+        stream.setLevel(logging.INFO)
+    elif log_level.upper() == "ERROR":
+        logger.setLevel(logging.ERROR)
+        stream.setLevel(logging.ERROR)
+    elif log_level.upper() == "WARNING":
+        logger.setLevel(logging.WARNING)
+        stream.setLevel(logging.WARNING)
+    elif log_level.upper() == "CRITICAL":
+        logger.setLevel(logging.CRITICAL)
+        stream.setLevel(logging.CRITICAL)
+    else:
+        logger.warning("Invalid log level: %s; Using INFO", args.log_level)
+        logger.setLevel(logging.INFO)
+        stream.setLevel(logging.INFO)
 
     Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
     Path(SAVED_DIR).mkdir(parents=True, exist_ok=True)
@@ -255,7 +350,21 @@ def pre_run():
             cookies = cookiefile.read()
             cookies = cookies.rstrip()
     else:
-        logger.warning("No cookies.txt file was found, you won't be able to download subscription courses! You can ignore ignore this if you don't plan to download a course included in a subscription plan.")
+        logger.warning("[-] No cookies.txt file was found, you won't be able to download subscription courses! You can ignore ignore this if you don't plan to download a course included in a subscription plan.")
+
+
+class Selenium:
+    def __init__(self):
+        data_dir = os.path.join(os.getcwd(), 'selenium_data')
+        options = ChromeOptions()
+        options.add_argument("--profile=Selenium")
+        options.add_argument(f"--user-data-dir={data_dir}")
+        self._driver = uc.Chrome(options=options, headless=headless)
+        self._driver.get("https://www.udemy.com/")
+
+    @property
+    def driver(self):
+        return self._driver
 
 
 class Udemy:
@@ -274,10 +383,10 @@ class Udemy:
                 "X-Udemy-Authorization":
                 "Bearer {}".format(self.bearer_token)
             })
-            logger.info("Login Success")
+            logger.info("[+] Login Success")
         else:
             logger.fatal(
-                "Login Failure! You are probably missing an access token!")
+                "[-] Login Failure! You are probably missing an access token!")
             sys.exit(1)
 
     def _extract_supplementary_assets(self, supp_assets, lecture_counter):
@@ -513,7 +622,7 @@ class Udemy:
                     })
         except Exception as error:
             logger.error(
-                f"Udemy Says : '{error}' while fetching hls streams..")
+                f"[-] Udemy Says : '{error}' while fetching hls streams..")
         return _temp
 
     def _extract_mpd(self, url):
@@ -555,12 +664,13 @@ class Udemy:
                             "extension": extension,
                             "download_url": f.get("manifest_url")
                         })
-                else:
+                # ignore audio tracks
+                elif "audio" not in f.get("format_note"):
                     # unknown format type
-                    logger.debug(f"Unknown format type : {f}")
+                    logger.debug(f"[-] Unknown format type : {f}")
                     continue
         except Exception:
-            logger.exception(f"Error fetching MPD streams")
+            logger.exception(f"[-] Error fetching MPD streams")
         return _temp
 
     def extract_course_name(self, url):
@@ -611,7 +721,7 @@ class Udemy:
         try:
             resp = self.session._get(url).json()
         except conn_error as error:
-            logger.fatal(f"Udemy Says: Connection error, {error}")
+            logger.fatal(f"[-] Udemy Says: Connection error, {error}")
             time.sleep(0.8)
             sys.exit(1)
         else:
@@ -630,7 +740,7 @@ class Udemy:
             else:
                 resp = resp.json()
         except conn_error as error:
-            logger.fatal(f"Udemy Says: Connection error, {error}")
+            logger.fatal(f"[-] Udemy Says: Connection error, {error}")
             time.sleep(0.8)
             sys.exit(1)
         except (ValueError, Exception):
@@ -639,12 +749,40 @@ class Udemy:
         else:
             return resp
 
+    def _extract_course_json_sub(self, selenium: Selenium, course_id, portal_name):
+        url = COURSE_URL.format(portal_name=portal_name, course_id=course_id)
+        selenium.driver.get(url)
+        time.sleep(2)
+
+        if "Attention" in selenium.driver.title:
+            # cloudflare captcha, panic
+            raise Exception("[-] Cloudflare captcha detected!")
+
+        # wait for page load
+        WebDriverWait(selenium.driver, 60).until(
+            EC.visibility_of_element_located((By.TAG_NAME, "pre")))
+        time.sleep(2)
+
+        # TODO: determine if the course content is large
+
+        # get the text from the page
+        page_text = selenium.driver.find_element(By.TAG_NAME, "pre").text
+        if not page_text or not isinstance(page_text, str):
+            raise Exception("[-] Could not get page text!")
+        page_json = json.loads(page_text)
+        if page_json:
+            return page_json
+        else:
+            logger.error("[-] Failed to extract course json!")
+            time.sleep(0.8)
+            sys.exit(1)
+
     def _extract_large_course_content(self, url):
         url = url.replace("10000", "50") if url.endswith("10000") else url
         try:
             data = self.session._get(url).json()
         except conn_error as error:
-            logger.fatal(f"Udemy Says: Connection error, {error}")
+            logger.fatal(f"[-] Udemy Says: Connection error, {error}")
             time.sleep(0.8)
             sys.exit(1)
         else:
@@ -654,7 +792,7 @@ class Udemy:
                 try:
                     resp = self.session._get(_next).json()
                 except conn_error as error:
-                    logger.fatal(f"Udemy Says: Connection error, {error}")
+                    logger.fatal(f"[-] Udemy Says: Connection error, {error}")
                     time.sleep(0.8)
                     sys.exit(1)
                 else:
@@ -811,23 +949,6 @@ class Udemy:
             course = self._extract_course(response=results,
                                           course_name=course_name)
 
-        if not course:
-            course_html = self.session._get(url).text
-            soup = BeautifulSoup(course_html, "lxml")
-            data = soup.find(
-                "div", {"class": "ud-component--course-taking--app"})
-            if not data:
-                logger.fatal(
-                    "Unable to extract arguments from course page! Make sure you have a cookies.txt file!")
-                self.session.terminate()
-                sys.exit(1)
-            data_args = data.attrs["data-module-args"]
-            data_json = json.loads(data_args)
-            course_id = data_json.get("courseId", None)
-            portal_name = self.extract_portal_name(url)
-            course = self._extract_course_info_json(
-                url, course_id, portal_name)
-
         if course:
             course.update({"portal_name": portal_name})
             return course.get("id"), course
@@ -840,6 +961,98 @@ class Udemy:
             logger.info("Trying to logout now...", )
             self.session.terminate()
             logger.info("Logged out successfully.", )
+            sys.exit(1)
+
+    def _selenium_login(self, driver):
+        # go to the login page
+        driver.get(
+            "https://www.udemy.com/join/login-popup/?ref=&display_type=popup&loc")
+
+        # wait for the page to load, we need to see the id_name element on the page.
+        WebDriverWait(driver, 60).until(
+            EC.visibility_of_element_located((By.ID, "id_email")))
+        time.sleep(2)
+
+        # find the email, password, and submit button
+        email_elem = driver.find_element(By.ID, "id_email")
+        password_elem = driver.find_element(By.ID, "id_password")
+        submit_btn_elem = driver.find_element(By.ID, "submit-id-submit")
+
+        # select the email field and enter the email
+        ActionChains(driver).move_to_element(email_elem).click().perform()
+        email_elem.clear()
+        email_elem.send_keys(username)
+
+        # select the password field and enter the password
+        ActionChains(driver).move_to_element(password_elem).click().perform()
+        password_elem.clear()
+        password_elem.send_keys(password)
+
+        # click the submit button
+        ActionChains(driver).move_to_element(submit_btn_elem).click().perform()
+
+        # wait for the page to load, title should be exact
+        WebDriverWait(driver, 60).until(EC.title_is(
+            "Online Courses - Learn Anything, On Your Schedule | Udemy"))
+        time.sleep(2)
+
+    def _extract_course_info_sub(self, selenium: Selenium, url):
+        """
+        Extract course information for subscription based courses use selenium
+        """
+        # wait for the page to load, title should be exact
+        WebDriverWait(selenium.driver, 60).until(EC.title_is(
+            "Online Courses - Learn Anything, On Your Schedule | Udemy"))
+        time.sleep(2)
+        # we need to check if we are logged in or not
+        is_authenticated = selenium.driver.execute_script(
+            "return window.UD.me.is_authenticated")
+        print("Is Authenticated: " + str(is_authenticated))
+        if not is_authenticated:
+            # TODO: handle failed logins
+
+            if not username or not password:
+                logger.fatal(
+                    "Username or password not provided, cannot continue")
+                selenium.driver.quit()
+                sys.exit(1)
+            self._selenium_login(selenium.driver)
+
+        # go to the course page
+        selenium.driver.get(url)
+        time.sleep(2)
+
+        # check if we get a cloudflare captcha
+        if "Attention" in selenium.driver.title:
+            # cloudflare captcha, panic
+            raise Exception("Cloudflare captcha detected!")
+
+        WebDriverWait(selenium.driver, 60).until(
+            EC.visibility_of_element_located((By.CLASS_NAME, "ud-component--course-taking--app")))
+        time.sleep(2)
+
+        # extract course information from page
+        data = selenium.driver.find_element(
+            By.CLASS_NAME, "ud-component--course-taking--app")
+        data_args = data.get_attribute("data-module-args")
+        data_args = data_args.replace("quot;", '"')
+        data_json = json.loads(data_args)
+        course_id = data_json.get("courseId", None)
+        portal_name = self.extract_portal_name(url)
+        course = self._extract_course_info_json(url, course_id, portal_name)
+        if course:
+            course.update({"portal_name": portal_name})
+            return course_id, course
+        if not course:
+            logger.fatal(
+                "Downloading course information, course id not found .. ")
+            logger.fatal(
+                "There was a problem getting the course information, do you have access?",
+            )
+            logger.info("Trying to logout now...", )
+            self.session.terminate()
+            logger.info("Logged out successfully.", )
+            selenium.driver.quit()
             sys.exit(1)
 
 
@@ -861,9 +1074,10 @@ class Session(object):
             if session.ok or session.status_code in [502, 503]:
                 return session
             if not session.ok:
-                logger.error('Failed request '+url)
+                logger.error(f"[-] Failed request: {url}")
+                logger.debug(session.text)
                 logger.error(
-                    f"{session.status_code} {session.reason}, retrying (attempt {i} )...")
+                    f"[-] {session.status_code} {session.reason}, retrying (attempt {i} )...")
                 time.sleep(0.8)
 
     def _post(self, url, data, redirect=True):
@@ -1036,7 +1250,7 @@ def durationtoseconds(period):
         return total_time
 
     else:
-        logger.error("Duration Format Error")
+        logger.error("[-] Duration Format Error")
         return None
 
 
@@ -1080,7 +1294,7 @@ def decrypt(kid, in_filepath, out_filepath):
                                  (key, in_filepath, out_filepath))
         return ret_code
     except KeyError:
-        raise KeyError("Key not found")
+        raise KeyError("[-] Key not found")
 
 
 def handle_segments(url, format_id, video_title,
@@ -1104,24 +1318,24 @@ def handle_segments(url, format_id, video_title,
     ret_code = subprocess.Popen(args).wait()
     logger.info("> Lecture Tracks Downloaded")
 
-    logger.debug("Return code: " + str(ret_code))
+    logger.debug("[-] Return code: " + str(ret_code))
     if ret_code != 0:
         logger.warning(
-            "Return code from the downloader was non-0 (error), skipping!")
+            "[-] Return code from the downloader was non-0 (error), skipping!")
         return
 
     try:
         video_kid = extract_kid(video_filepath_enc)
         logger.info("KID for video file is: " + video_kid)
     except Exception:
-        logger.exception(f"Error extracting video kid")
+        logger.exception(f"[-] Error extracting video kid")
         return
 
     try:
         audio_kid = extract_kid(audio_filepath_enc)
         logger.info("KID for audio file is: " + audio_kid)
     except Exception:
-        logger.exception(f"Error extracting audio kid")
+        logger.exception(f"[-] Error extracting audio kid")
         return
 
     try:
@@ -1153,7 +1367,7 @@ def handle_segments(url, format_id, video_title,
         os.remove(audio_filepath_dec)
         os.chdir(HOME_DIR)
     except Exception:
-        logger.exception(f"Error: ")
+        logger.exception(f"[-] Error: ")
 
 
 def check_for_aria():
@@ -1594,17 +1808,19 @@ def main():
         logger.warniing(
             "> Keyfile not found! You won't be able to decrypt videos!")
 
-    load_dotenv()
-    if bearer_token:
-        bearer_token = bearer_token
-    else:
-        bearer_token = os.getenv("UDEMY_BEARER")
-
     udemy = Udemy(bearer_token)
+    if is_subscription_course:
+        selenium = Selenium()
 
     logger.info("> Fetching course information, this may take a minute...")
     if not load_from_file:
-        course_id, course_info = udemy._extract_course_info(course_url)
+        if is_subscription_course:
+            logger.info(
+                "Extracting course information as a subscription course...")
+            course_id, course_info = udemy._extract_course_info_sub(
+                selenium, course_url)
+        else:
+            course_id, course_info = udemy._extract_course_info(course_url)
         logger.info("> Course information retrieved!")
         if course_info and isinstance(course_info, dict):
             title = sanitize_filename(course_info.get("title"))
@@ -1620,8 +1836,17 @@ def main():
         course_title = course_json.get("published_title")
         portal_name = course_json.get("portal_name")
     else:
-        course_json = udemy._extract_course_json(course_url, course_id,
-                                                 portal_name)
+        if is_subscription_course:
+            course_json = udemy._extract_course_json_sub(selenium, course_id,
+                                                         portal_name)
+        else:
+            course_json = udemy._extract_course_json(course_url, course_id,
+                                                     portal_name)
+
+    # close selenium if it's running
+    if selenium:
+        selenium.driver.quit()
+
     if save_to_file:
         with open(os.path.join(os.getcwd(), "saved", "course_content.json"),
                   encoding="utf8", mode='w') as f:

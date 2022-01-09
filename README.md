@@ -95,8 +95,10 @@ Note the link is `/course` not `/program-taking`. It is also important that the 
 # Advanced Usage
 
 ```
-usage: main.py [-h] -c COURSE_URL [-b BEARER_TOKEN] [-q QUALITY] [-l LANG] [-cd CONCURRENT_DOWNLOADS] [--disable-ipv6] [--skip-lectures] [--download-assets] [--download-captions]
-               [--keep-vtt] [--skip-hls] [--info] [--id-as-course-name] [--save-to-file] [--load-from-file] [--log-level LOG_LEVEL] [-v]
+usage: main.py [-h] -c COURSE_URL [-b BEARER_TOKEN] [-u USERNAME] [-p PASSWORD] [-q QUALITY] [-l LANG]
+               [-cd CONCURRENT_DOWNLOADS] [--disable-ipv6] [--skip-lectures] [--download-assets] [--download-captions]
+               [--keep-vtt] [--skip-hls] [--info] [--id-as-course-name] [-sc] [--save-to-file] [--load-from-file]
+               [--log-level LOG_LEVEL] [-v]
 
 Udemy Downloader
 
@@ -106,10 +108,15 @@ optional arguments:
                         The URL of the course to download
   -b BEARER_TOKEN, --bearer BEARER_TOKEN
                         The Bearer token to use
+  -u USERNAME, --username USERNAME
+                        username
+  -p PASSWORD, --password PASSWORD
+                        password
   -q QUALITY, --quality QUALITY
-                        Download specific video quality. If the requested quality isn't available, the closest quality will be used. If not specified, the best quality will be downloaded
-                        for each lecture
-  -l LANG, --lang LANG  The language to download for captions, specify 'all' to download all captions (Default is 'en')
+                        Download specific video quality. If the requested quality isn't available, the closest quality
+                        will be used. If not specified, the best quality will be downloaded for each lecture
+  -l LANG, --lang LANG  The language to download for captions, specify 'all' to download all captions (Default is
+                        'en')
   -cd CONCURRENT_DOWNLOADS, --concurrent-downloads CONCURRENT_DOWNLOADS
                         The number of maximum concurrent downloads for segments (HLS and DASH, must be a number 1-30)
   --disable-ipv6        If specified, ipv6 will be disabled in aria2
@@ -117,13 +124,18 @@ optional arguments:
   --download-assets     If specified, lecture assets will be downloaded
   --download-captions   If specified, captions will be downloaded
   --keep-vtt            If specified, .vtt files won't be removed
-  --skip-hls            If specified, hls streams will be skipped (faster fetching) (hls streams usually contain 1080p quality for non-drm lectures)
+  --skip-hls            If specified, hls streams will be skipped (faster fetching) (hls streams usually contain 1080p
+                        quality for non-drm lectures)
   --info                If specified, only course information will be printed, nothing will be downloaded
-  --id-as-course-name   If specified, the course id will be used in place of the course name for the output directory. This is a 'hack' to reduce the path length
-  --save-to-file        If specified, course content will be saved to a file that can be loaded later with --load-from-file, this can reduce processing time (Note that asset links expire
-                        after a certain amount of time)
-  --load-from-file      If specified, course content will be loaded from a previously saved file with --save-to-file, this can reduce processing time (Note that asset links expire after a
-                        certain amount of time)
+  --id-as-course-name   If specified, the course id will be used in place of the course name for the output directory.
+                        This is a 'hack' to reduce the path length
+  -sc, --subscription-course
+                        If this course is part of a subscription plan (Personal or Pro Plans)
+  --save-to-file        If specified, course content will be saved to a file that can be loaded later with --load-
+                        from-file, this can reduce processing time (Note that asset links expire after a certain
+                        amount of time)
+  --load-from-file      If specified, course content will be loaded from a previously saved file with --save-to-file,
+                        this can reduce processing time (Note that asset links expire after a certain amount of time)
   --log-level LOG_LEVEL
                         Logging level: one of DEBUG, INFO, ERROR, WARNING, CRITICAL (Default is INFO)
   -v, --version         show program's version number and exit
@@ -170,6 +182,9 @@ optional arguments:
   - `python main.py -c <Course URL> --log-level CRITICAL`
 - Use course ID as the course name:
   - `python main.py -c <Course URL> --id-as-course-name`
+- Specify username and password (only used for subscription based courses):
+  - `python main.py -c <Course URL> --username cooluser@email.com --password amazingpassword123`
+  - `python main.py -c <Course URL> -u cooluser@email.com -p amazingpassword123`
 
 If you encounter errors while downloading such as
 

@@ -124,3 +124,6 @@ saved
 info.py
 .idea/
 cookies.txt
+selenium_data/
+selenium_test.py
+config.dev.toml

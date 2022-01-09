@@ -1,7 +1,6 @@
 mpegdash
 tqdm
 requests
-python-dotenv
 protobuf
 webvtt-py
 pysrt
@@ -16,3 +15,6 @@ lxml
 six
 pathvalidate
 coloredlogs
+toml
+selenium
+undetected-chromedriver
