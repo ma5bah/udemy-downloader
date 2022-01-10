@@ -58,6 +58,7 @@ stream: logging.StreamHandler = None
 username: str = None
 password: str = None
 headless = True
+selenium = None
 
 
 def parse_config():
@@ -1778,7 +1779,8 @@ def _print_course_info(course_data):
 
 
 def main():
-    global bearer_token
+    global bearer_token, selenium
+
     aria_ret_val = check_for_aria()
     if not aria_ret_val:
         logger.fatal("> Aria2c is missing from your system or path!")
