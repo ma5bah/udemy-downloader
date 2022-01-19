@@ -1657,9 +1657,9 @@ def main():
         logger.info(
             "> 'save_to_file' was specified, data will be saved to json files")
 
-    if not os.path.isfile(KEY_FILE_PATH):
-        logger.warning(
-            "> Keyfile not found! You won't be able to decrypt videos!")
+    # if not os.path.isfile(KEY_FILE_PATH):
+    #     logger.warning(
+    #         "> Keyfile not found! You won't be able to decrypt videos!")
 
     load_dotenv()
     if bearer_token:
