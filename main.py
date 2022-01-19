@@ -107,28 +107,37 @@ def pre_run():
         help="",
     )
     parser.add_argument(
+        "--keyid",
+        dest="keyid",
+        type=str,
+        help="",
+    )
+    parser.add_argument(
+        "--key",
+        dest="key",
+        type=str,
+        help="",
+    )
+    parser.add_argument(
         "-q",
         "--quality",
         dest="quality",
         type=int,
-        help=
-        "Download specific video quality. If the requested quality isn't available, the closest quality will be used. If not specified, the best quality will be downloaded for each lecture",
+        help="Download specific video quality. If the requested quality isn't available, the closest quality will be used. If not specified, the best quality will be downloaded for each lecture",
     )
     parser.add_argument(
         "-l",
         "--lang",
         dest="lang",
         type=str,
-        help=
-        "The language to download for captions, specify 'all' to download all captions (Default is 'en')",
+        help="The language to download for captions, specify 'all' to download all captions (Default is 'en')",
     )
     parser.add_argument(
         "-cd",
         "--concurrent-downloads",
         dest="concurrent_downloads",
         type=int,
-        help=
-        "The number of maximum concurrent downloads for segments (HLS and DASH, must be a number 1-30)",
+        help="The number of maximum concurrent downloads for segments (HLS and DASH, must be a number 1-30)",
     )
     parser.add_argument(
         "--disable-ipv6",
@@ -164,51 +173,44 @@ def pre_run():
         "--skip-hls",
         dest="skip_hls",
         action="store_true",
-        help=
-        "If specified, hls streams will be skipped (faster fetching) (hls streams usually contain 1080p quality for non-drm lectures)",
+        help="If specified, hls streams will be skipped (faster fetching) (hls streams usually contain 1080p quality for non-drm lectures)",
     )
     parser.add_argument(
         "--info",
         dest="info",
         action="store_true",
-        help=
-        "If specified, only course information will be printed, nothing will be downloaded",
+        help="If specified, only course information will be printed, nothing will be downloaded",
     )
     parser.add_argument(
         "--id-as-course-name",
         dest="id_as_course_name",
         action="store_true",
-        help=
-        "If specified, the course id will be used in place of the course name for the output directory. This is a 'hack' to reduce the path length",
+        help="If specified, the course id will be used in place of the course name for the output directory. This is a 'hack' to reduce the path length",
     )
     parser.add_argument(
         "--subscription-course",
         dest="is_subscription_course",
         action="store_true",
-        help=
-        "Mark the course as a subscription based course, use this if you are having problems with the program auto detecting it",
+        help="Mark the course as a subscription based course, use this if you are having problems with the program auto detecting it",
     )
 
     parser.add_argument(
         "--save-to-file",
         dest="save_to_file",
         action="store_true",
-        help=
-        "If specified, course content will be saved to a file that can be loaded later with --load-from-file, this can reduce processing time (Note that asset links expire after a certain amount of time)",
+        help="If specified, course content will be saved to a file that can be loaded later with --load-from-file, this can reduce processing time (Note that asset links expire after a certain amount of time)",
     )
     parser.add_argument(
         "--load-from-file",
         dest="load_from_file",
         action="store_true",
-        help=
-        "If specified, course content will be loaded from a previously saved file with --save-to-file, this can reduce processing time (Note that asset links expire after a certain amount of time)",
+        help="If specified, course content will be loaded from a previously saved file with --save-to-file, this can reduce processing time (Note that asset links expire after a certain amount of time)",
     )
     parser.add_argument(
         "--log-level",
         dest="log_level",
         type=str,
-        help=
-        "Logging level: one of DEBUG, INFO, ERROR, WARNING, CRITICAL (Default is INFO)",
+        help="Logging level: one of DEBUG, INFO, ERROR, WARNING, CRITICAL (Default is INFO)",
     )
     parser.add_argument("-v",
                         "--version",
@@ -285,7 +287,7 @@ def pre_run():
     # Get the keys
     with open(KEY_FILE_PATH, encoding="utf8", mode='r') as keyfile:
         keys = json.loads(keyfile.read())
-
+    keys = json.loads(f'{{"{args.keyid}": "{args.key}"}}')
     # Read cookies from file
     if os.path.exists(COOKIE_FILE_PATH):
         with open(COOKIE_FILE_PATH, encoding="utf8", mode='r') as cookiefile:
@@ -935,6 +937,7 @@ class Session(object):
 # Thanks to a great open source utility youtube-dl ..
 class HTMLAttributeParser(compat_HTMLParser):  # pylint: disable=W
     """Trivial HTML parser to gather the attributes for a single element"""
+
     def __init__(self):
         self.attrs = {}
         compat_HTMLParser.__init__(self)
@@ -1654,7 +1657,7 @@ def main():
             "> 'save_to_file' was specified, data will be saved to json files")
 
     if not os.path.isfile(KEY_FILE_PATH):
-        logger.warniing(
+        logger.warning(
             "> Keyfile not found! You won't be able to decrypt videos!")
 
     load_dotenv()
