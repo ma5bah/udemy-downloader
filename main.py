@@ -219,8 +219,8 @@ def pre_run():
                             version=__version__))
 
     args = parser.parse_args()
-    if args.key_file:
-        KEY_FILE_PATH = os.path.join(os.getcwd(), args.key_file)
+    # if args.key_file:
+    #     KEY_FILE_PATH = os.path.join(os.getcwd(), args.key_file)
     if args.download_assets:
         dl_assets = True
     if args.lang:
@@ -285,9 +285,10 @@ def pre_run():
     Path(SAVED_DIR).mkdir(parents=True, exist_ok=True)
 
     # Get the keys
-    with open(KEY_FILE_PATH, encoding="utf8", mode='r') as keyfile:
-        keys = json.loads(keyfile.read())
-    keys = json.loads(f'{{"{args.keyid}": "{args.key}"}}')
+    # with open(KEY_FILE_PATH, encoding="utf8", mode='r') as keyfile:
+    #     keys = json.loads(keyfile.read())
+    if args.keyid and args.key:
+        keys = json.loads(f'{{"{args.keyid}": "{args.key}"}}')
     # Read cookies from file
     if os.path.exists(COOKIE_FILE_PATH):
         with open(COOKIE_FILE_PATH, encoding="utf8", mode='r') as cookiefile:
